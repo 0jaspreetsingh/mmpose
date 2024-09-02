@@ -340,7 +340,9 @@ def process_one_image(args, detector, frame, frame_idx, pose_estimator,
 
     if args.num_instances < 0:
         args.num_instances = len(pose_lift_results)
-
+    print_log(len(pred_3d_instances))
+    print_log(pred_3d_instances[0].keys())
+    print_log(pose_est_results[0].keys())
     # Visualization
     if visualizer is not None:
         visualizer.add_datasample(
@@ -539,7 +541,7 @@ def main():
                     instance_info=pred_instances_list),
                 f,
                 indent='\t')
-        print(f'predictions have been saved at {args.pred_save_path}')
+        print_log(f'predictions have been saved at {args.pred_save_path}')
 
     if save_output:
         input_type = input_type.replace('webcam', 'video')
