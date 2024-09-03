@@ -308,7 +308,7 @@ def process_one_image(args, detector, frame, frame_idx, pose_estimator,
 
     # post-processing
     for idx, pose_lift_result in enumerate(pose_lift_results):
-        pose_lift_result.track_id = pose_est_results[idx].get('track_id', 1e4)
+        # pose_lift_result.track_id = pose_est_results[idx].get('track_id', 1e4) ## TODO; check if it can cause issue
 
         pred_instances = pose_lift_result.pred_instances
         keypoints = pred_instances.keypoints
@@ -340,8 +340,9 @@ def process_one_image(args, detector, frame, frame_idx, pose_estimator,
 
     if args.num_instances < 0:
         args.num_instances = len(pose_lift_results)
-    print_log(len(pred_3d_instances))
-    print_log(pred_3d_instances[0].keys())
+    # print_log(len(pred_3d_instances))
+    # print_log(pred_3d_instances[0].keys())
+    # print_log(pose_est_results[0].keys())
     # Visualization
     if visualizer is not None:
         visualizer.add_datasample(
@@ -359,6 +360,7 @@ def process_one_image(args, detector, frame, frame_idx, pose_estimator,
             wait_time=args.show_interval)
 
     return pose_est_results, pose_est_results_list, pred_3d_instances, next_id
+
 
 
 def main():
@@ -461,6 +463,7 @@ def main():
     elif input_type in ['webcam', 'video']:
         next_id = 0
         pose_est_results = []
+        pose_est_results_list = []
 
         if args.input == 'webcam':
             video = cv2.VideoCapture(0)
@@ -530,74 +533,123 @@ def main():
         if video_writer:
             video_writer.release()
     elif input_type in ['folder']:
+        label_names_uav = ['cross_arms', 'thumbs_up', 'extend_one_arm_to_the_side', 'palms_together', 'V_shape', 'raise_one_arm_upwards']
+
         print_log("Starting extraction of skleton for videos in a folder")
-        next_id = 0
-        pose_est_results = []
-        video_list = []
-        video = cv2.VideoCapture(args.input)
-
-        (major_ver, minor_ver, subminor_ver) = (cv2.__version__).split('.')
-        if int(major_ver) < 3:
-            fps = video.get(cv2.cv.CV_CAP_PROP_FPS)
+        if not os.path.exists(os.path.join(args.output_root, 'extracted_pose_3d.pkl')):
+            extracted_pose_3d = {'split': {}, 'annotations': [], 'processed': set()}
         else:
-            fps = video.get(cv2.CAP_PROP_FPS)
+            extracted_pose_3d = mmengine.load(os.path.join(args.output_root, 'extracted_pose_3d.pkl'))
+        ####################################################################
 
-        video_writer = None
-        frame_idx = 0
+        directory_list = ['train', 'test']
+        print_log(directory_list)
+        for directory in directory_list:
+            path = os.path.join(args.input, directory)
+            if os.path.isdir(path):
+                video_subset_list = os.listdir(path)
+                extracted_pose_3d['split'][directory] = video_subset_list
+                print_log(video_subset_list)
+                video_subset_list = sorted(video_subset_list)
+                for each_video in video_subset_list:
+                    current_video_name = f'{directory}_{each_video}'
+                    if current_video_name not in extracted_pose_3d['processed']:
+                        video_path = os.path.join(path, each_video)
+                        print_log(f"Processing video on path: {video_path}")
+                        video = cv2.VideoCapture(video_path)
+                        next_id = 0
+                        pose_est_results = []
+                        (major_ver, minor_ver, subminor_ver) = (cv2.__version__).split('.')
+                        if int(major_ver) < 3:
+                            fps = video.get(cv2.cv.CV_CAP_PROP_FPS)
+                        else:
+                            fps = video.get(cv2.CAP_PROP_FPS)
 
-        while video.isOpened():
-            success, frame = video.read()
-            frame_idx += 1
+                        video_writer = None
+                        frame_idx = 0
 
-            if not success:
-                break
 
-            pose_est_results_last = pose_est_results
+                        (major_ver, minor_ver, subminor_ver) = (cv2.__version__).split('.')
+                        if int(major_ver) < 3:
+                            fps = video.get(cv2.cv.CV_CAP_PROP_FPS)
+                        else:
+                            fps = video.get(cv2.CAP_PROP_FPS)
 
-            # First stage: 2D pose detection
-            # make person results for current image
-            (pose_est_results, pose_est_results_list, pred_3d_instances,
-             next_id) = process_one_image(
-                 args=args,
-                 detector=detector,
-                 frame=frame,
-                 frame_idx=frame_idx,
-                 pose_estimator=pose_estimator,
-                 pose_est_results_last=pose_est_results_last,
-                 pose_est_results_list=pose_est_results_list,
-                 next_id=next_id,
-                 pose_lifter=pose_lifter,
-                 visualize_frame=mmcv.bgr2rgb(frame),
-                 visualizer=visualizer)
+                        keypoints = []
+                        keypoint_scores = []
+                        while video.isOpened():
+                            success, frame = video.read()
+                            frame_idx += 1
 
-            if args.save_predictions:
-                # save prediction results
-                pred_instances_list.append(
-                    dict(
-                        frame_id=frame_idx,
-                        instances=split_instances(pred_3d_instances)))
+                            if not success:
+                                break
 
-            if save_output:
-                frame_vis = visualizer.get_image()
-                if video_writer is None:
-                    # the size of the image with visualization may vary
-                    # depending on the presence of heatmaps
-                    video_writer = cv2.VideoWriter(output_file, fourcc, fps,
-                                                   (frame_vis.shape[1],
-                                                    frame_vis.shape[0]))
+                            pose_est_results_last = pose_est_results
 
-                video_writer.write(mmcv.rgb2bgr(frame_vis))
+                            # First stage: 2D pose detection
+                            # make person results for current image
+                            (pose_est_results, pose_est_results_list, pred_3d_instances,
+                            next_id) = process_one_image(
+                                args=args,
+                                detector=detector,
+                                frame=frame,
+                                frame_idx=frame_idx,
+                                pose_estimator=pose_estimator,
+                                pose_est_results_last=pose_est_results_last,
+                                pose_est_results_list=pose_est_results_list,
+                                next_id=next_id,
+                                pose_lifter=pose_lifter,
+                                visualize_frame=mmcv.bgr2rgb(frame),
+                                visualizer=visualizer)
 
-            if args.show:
-                # press ESC to exit
-                if cv2.waitKey(5) & 0xFF == 27:
-                    break
-                time.sleep(args.show_interval)
+                            if args.save_predictions:
+                                # save prediction results
+                                instances=split_instances(pred_3d_instances)
+                                pred_instances_list.append(
+                                    dict(
+                                        frame_id=frame_idx,
+                                        instances=instances))
+                                # print_log("##############################")
+                                # print_log(pred_3d_instances)
+                                # print_log("##############################")
+                                # print_log(pred_3d_instances['keypoint_scores'])
+                                keypoints.append(pred_3d_instances['keypoints'])
+                                keypoint_scores.append(pred_3d_instances['keypoint_scores'])
 
-        video.release()
 
-        if video_writer:
-            video_writer.release()
+                            if save_output:
+                                frame_vis = visualizer.get_image()
+                                if video_writer is None:
+                                    # the size of the image with visualization may vary
+                                    # depending on the presence of heatmaps
+                                    video_writer = cv2.VideoWriter(output_file, fourcc, fps,
+                                                                (frame_vis.shape[1],
+                                                                    frame_vis.shape[0]))
+
+                                video_writer.write(mmcv.rgb2bgr(frame_vis))
+
+                            if args.show:
+                                # press ESC to exit
+                                if cv2.waitKey(5) & 0xFF == 27:
+                                    break
+                                time.sleep(args.show_interval)
+
+                        video.release()
+                        # print_log(len(pred_instances_list))
+                        total_frames = len(keypoints)
+                        keypoints = np.stack(keypoints, axis = 1)
+                        # keypoint_scores = np.stack(keypoint_scores, axis=1)
+                        pose_res_3d = {'frame_dir': each_video, 'label': label_names_uav.index(each_video.split('-')[0]), 'total_frames':total_frames, 'keypoint': keypoints} 
+                        extracted_pose_3d['annotations'].append(pose_res_3d)
+                        extracted_pose_3d['processed'].add(current_video_name)
+                        mmengine.dump(extracted_pose_3d, os.path.join(args.output_root, 'extracted_pose_3d.pkl'))
+                        # print(extracted_pose_3d)
+                        video = None
+
+                        if video_writer:
+                            video_writer.release()
+                    else:
+                        print_log(f"Video {current_video_name} already processed")
     else:
         args.save_predictions = False
         raise ValueError(
@@ -611,6 +663,8 @@ def main():
                     instance_info=pred_instances_list),
                 f,
                 indent='\t')
+                
+        # mmengine.dump(extracted_pose_3d, os.path.join(args.output_root, 'extracted_pose_3d.pkl'))
         print_log(f'predictions have been saved at {args.pred_save_path}')
 
     if save_output:
